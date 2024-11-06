@@ -1,4 +1,4 @@
-const {} = require('tapable');
+const {AsyncSeriesBailHook, AsyncParallelBailHook, SyncHook,SyncWaterfallHook, SyncBailHook,SyncLoopHook  } = require('tapable');
 const assert = require('node:assert');
 
 class Car {
@@ -8,24 +8,38 @@ class Car {
 		this.fuelAmount = 0;
 
 		this.hooks = {
-			accelerate: null,
-			paint: null,
-			refuel: null
+			accelerate: new AsyncSeriesBailHook(['newSpeed']),
+			paint: new AsyncParallelBailHook(['newColor']),
+			refuel: new SyncWaterfallHook (['fuelContext'])
 		}
 	}
 
 	accelerate(newSpeed, cb) {
-		this.speed = newValue;
-		cb();
+		this.hooks.accelerate.callAsync(newSpeed, (err, newValue) => {
+			if (err) {
+				this.speed = 0;
+				cb();
+				return;
+			}
+			// Если newValue определен (был возвращен из хука), используем его
+			// В противном случае используем исходную newSpeed
+			this.speed = newValue
+		});
 	}
 
 	paint(newColor, cb) {
-		this.color = newValue;
-		cb();
+			this.hooks.paint.callAsync(newColor, (err, newValue) => {
+				this.color = newValue;
+				cb();
+			});
+
 	}
 
 	refuel(amount) {
-		this.fuelAmount = amount;
+		const fuelContext = { fuelAmount: amount };
+		const modifiedContext = this.hooks.refuel.call(fuelContext);
+		this.fuelAmount = modifiedContext.fuelAmount;
+		console.log(`Refueled to: ${this.fuelAmount}`);
 	}
 }
 
@@ -54,12 +68,14 @@ car.accelerate(250, () => {
 
 
 car.hooks.paint.tapAsync('Paint', (newColor, cb) => {
+	console.log('red 1');
 	setTimeout(() => {
 		cb(null, 'red');
 	}, 2000);
 });
 
 car.hooks.paint.tapAsync('Paint', (newColor, cb) => {
+	console.log('black 1');
 	setTimeout(() => {
 		cb(null, 'black');
 	}, 2000);
@@ -71,6 +87,7 @@ car.paint('white', () => {
 
 
 car.hooks.refuel.tap('Refuel', function(context) {
+	console.log(context,'context hook');
 	if (context.fuelAmount > 400) {
 		context.fuelAmount = 400;
 	}
